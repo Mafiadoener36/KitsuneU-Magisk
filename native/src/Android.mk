@@ -11,10 +11,8 @@ LOCAL_MODULE := magisk
 LOCAL_STATIC_LIBRARIES := \
     libbase \
     libsystemproperties \
-    libphmap \
     liblsplt \
-    libmagisk-rs \
-    libxdl
+    libmagisk-rs
 
 LOCAL_SRC_FILES := \
     core/applets.cpp \
@@ -36,15 +34,11 @@ LOCAL_SRC_FILES := \
     core/su/su_daemon.cpp \
     core/zygisk/entry.cpp \
     core/zygisk/main.cpp \
+    core/zygisk/module.cpp \
     core/zygisk/hook.cpp \
     core/deny/cli.cpp \
     core/deny/utils.cpp \
-    core/deny/revert.cpp \
-    core/zygisk/memory.cpp \
-    core/zygisk/proc_monitor.cpp \
-    core/zygisk/ptrace.cpp \
-    core/zygisk/ptrace_utils.cpp \
-    core/deny/ptrace.cpp
+    core/deny/logcat.cpp
 
 LOCAL_LDLIBS := -llog
 LOCAL_LDFLAGS := -Wl,--dynamic-list=src/exported_sym.txt
@@ -58,7 +52,7 @@ ifdef B_PRELOAD
 include $(CLEAR_VARS)
 LOCAL_MODULE := init-ld
 LOCAL_SRC_FILES := init/preload.c
-LOCAL_STRIP_MODE := --strip-all
+LOCAL_LDFLAGS := -Wl,--strip-all
 include $(BUILD_SHARED_LIBRARY)
 
 endif
@@ -69,7 +63,6 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := magiskinit
 LOCAL_STATIC_LIBRARIES := \
     libbase \
-    libcompat \
     libpolicy \
     libxz \
     libinit-rs
@@ -83,6 +76,12 @@ LOCAL_SRC_FILES := \
     init/selinux.cpp \
     init/init-rs.cpp
 
+LOCAL_LDFLAGS := -static
+
+ifdef B_CRT0
+LOCAL_STATIC_LIBRARIES += crt0
+endif
+
 include $(BUILD_EXECUTABLE)
 
 endif
@@ -93,7 +92,6 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := magiskboot
 LOCAL_STATIC_LIBRARIES := \
     libbase \
-    libcompat \
     liblzma \
     liblz4 \
     libbz2 \
@@ -107,6 +105,13 @@ LOCAL_SRC_FILES := \
     boot/compress.cpp \
     boot/format.cpp \
     boot/boot-rs.cpp
+
+LOCAL_LDFLAGS := -static
+
+ifdef B_CRT0
+LOCAL_STATIC_LIBRARIES += crt0
+LOCAL_LDFLAGS += -lm
+endif
 
 include $(BUILD_EXECUTABLE)
 
@@ -160,18 +165,10 @@ LOCAL_EXPORT_C_INCLUDES := $(LOCAL_C_INCLUDES)
 LOCAL_SRC_FILES := \
     sepolicy/api.cpp \
     sepolicy/sepolicy.cpp \
-    sepolicy/rules.cpp \
     sepolicy/policydb.cpp \
-    sepolicy/statement.cpp \
     sepolicy/policy-rs.cpp
 include $(BUILD_STATIC_LIBRARY)
 
 include src/Android-rs.mk
 include src/base/Android.mk
 include src/external/Android.mk
-
-ifdef B_BB
-
-include src/external/busybox/Android.mk
-
-endif

@@ -4,8 +4,6 @@
 #include <sys/mount.h>
 #include <android/log.h>
 #include <android/dlext.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 
 #include <base.hpp>
 #include <consts.hpp>
@@ -15,22 +13,26 @@
 
 using namespace std;
 
-void *self_handle = nullptr;
 string native_bridge = "0";
-bool stop_trace_zygote = false;
-int system_server_fd = -1;
 
-extern "C" [[maybe_unused]] void zygisk_inject_entry(void *handle) {
-    self_handle = handle;
+static bool is_compatible_with(uint32_t) {
     zygisk_logging();
-    hook_functions();
+    hook_entry();
     ZLOGD("load success\n");
+    return false;
 }
+
+extern "C" [[maybe_unused]] NativeBridgeCallbacks NativeBridgeItf {
+    .version = 2,
+    .padding = {},
+    .isCompatibleWith = &is_compatible_with,
+};
 
 // The following code runs in zygote/app process
 
 static inline bool should_load_modules(uint32_t flags) {
-    return (flags & PROCESS_IS_MAGISK_APP) != PROCESS_IS_MAGISK_APP;
+    return (flags & UNMOUNT_MASK) != UNMOUNT_MASK &&
+           (flags & PROCESS_IS_MAGISK_APP) != PROCESS_IS_MAGISK_APP;
 }
 
 int remote_get_info(int uid, const char *process, uint32_t *flags, vector<int> &fds) {
@@ -46,29 +48,6 @@ int remote_get_info(int uid, const char *process, uint32_t *flags, vector<int> &
     return -1;
 }
 
-int remote_request_sulist() {
-    if (int fd = zygisk_request(ZygiskRequest::SULIST_ROOT_NS); fd >= 0) {
-        int res = read_int(fd);
-        close(fd);
-        return res;
-    }
-    return -1;
-}
-
-int remote_request_umount() {
-    if (int fd = zygisk_request(ZygiskRequest::REVERT_UNMOUNT); fd >= 0) {
-        // directly open fd path from magisk proc without recv_fd
-        auto ns_path = read_string(fd);
-        auto clean_ns = xopen(ns_path.data(), O_RDONLY);
-        LOGD("denylist: set to clean ns [%s] fd=[%d]\n", ns_path.data(), clean_ns);
-        if (clean_ns > 0) xsetns(clean_ns, CLONE_NEWNS);
-        close(clean_ns);
-        close(fd);
-        return 0;
-    }
-    return -1;
-}
-
 // The following code runs in magiskd
 
 static vector<int> get_module_fds(bool is_64_bit) {
@@ -76,12 +55,13 @@ static vector<int> get_module_fds(bool is_64_bit) {
     // All fds passed to send_fds have to be valid file descriptors.
     // To workaround this issue, send over STDOUT_FILENO as an indicator of an
     // invalid fd as it will always be /dev/null in magiskd
-    if (is_64_bit) {
 #if defined(__LP64__)
+    if (is_64_bit) {
         std::transform(module_list->begin(), module_list->end(), std::back_inserter(fds),
             [](const module_info &info) { return info.z64 < 0 ? STDOUT_FILENO : info.z64; });
+    } else
 #endif
-    } else {
+    {
         std::transform(module_list->begin(), module_list->end(), std::back_inserter(fds),
             [](const module_info &info) { return info.z32 < 0 ? STDOUT_FILENO : info.z32; });
     }
@@ -118,7 +98,11 @@ static void connect_companion(int client, bool is_64_bit) {
         zygiskd_socket = fds[0];
         if (fork_dont_care() == 0) {
             char exe[64];
-            ssprintf(exe, sizeof(exe), "%s/magisk%s", get_magisk_tmp(), (is_64_bit ? "64" : "32"));
+#if defined(__LP64__)
+            ssprintf(exe, sizeof(exe), "%s/magisk%s", get_magisk_tmp(), (is_64_bit ? "" : "32"));
+#else
+            ssprintf(exe, sizeof(exe), "%s/magisk", get_magisk_tmp());
+#endif
             // This fd has to survive exec
             fcntl(fds[1], F_SETFD, 0);
             char buf[16];
@@ -138,8 +122,6 @@ static void connect_companion(int client, bool is_64_bit) {
     send_fd(zygiskd_socket, client);
 }
 
-static int clean_ns64 = -1, clean_ns32 = -1;
-
 extern bool uid_granted_root(int uid);
 static void get_process_info(int client, const sock_cred *cred) {
     int uid = read_int(client);
@@ -147,22 +129,14 @@ static void get_process_info(int client, const sock_cred *cred) {
 
     uint32_t flags = 0;
 
-    check_pkg_refresh();
     if (is_deny_target(uid, process)) {
-        flags |= (sulist_enabled)? PROCESS_ON_ALLOWLIST : PROCESS_ON_DENYLIST;
+        flags |= PROCESS_ON_DENYLIST;
     }
-    int manager_app_id = get_manager();
-    if (to_app_id(uid) == manager_app_id) {
+    if (get_manager(to_user_id(uid)) == uid) {
         flags |= PROCESS_IS_MAGISK_APP;
     }
     if (denylist_enforced) {
-        flags |= MAGISKHIDE_ENABLED;
-    }
-    if (sulist_enabled){
-        flags |= ALLOWLIST_ENFORCING;
-        // treat "not on sulist" as "on denylist" for zygisk modules
-        if ((flags & PROCESS_ON_ALLOWLIST) != PROCESS_ON_ALLOWLIST)
-            flags |= PROCESS_ON_DENYLIST;
+        flags |= DENYLIST_ENFORCING;
     }
     if (uid_granted_root(uid)) {
         flags |= PROCESS_GRANTED_ROOT;
@@ -184,9 +158,6 @@ static void get_process_info(int client, const sock_cred *cred) {
     if (uid != 1000 || process != "system_server")
         return;
 
-    if (system_server_fd >= 0) close(system_server_fd);
-    system_server_fd = xopen(("/proc/"s + to_string(cred->pid)).data(), O_PATH);
-
     // Collect module status from system_server
     int slots = read_int(client);
     dynamic_bitset bits;
@@ -206,43 +177,6 @@ static void get_process_info(int client, const sock_cred *cred) {
                 close(dirfd);
             }
         }
-    }
-}
-
-static void mount_magisk_to_remote(int client, const sock_cred *cred) {
-    int pid = fork();
-    if (pid == 0) {
-        do_mount_magisk(cred->pid);
-        _exit(0);
-    } else if (pid > 0) {
-        waitpid(pid, nullptr, 0);
-        write_int(client, 0);
-    } else {
-        write_int(client, -1);
-    }
-}
-
-static int get_clean_ns(pid_t pid) {
-    int pipe_fd[2];
-    pipe(pipe_fd);
-    int child = xfork();
-    if (!child) {
-        switch_mnt_ns(pid);
-        xunshare(CLONE_NEWNS);
-        revert_unmount();
-        write_int(pipe_fd[1], 0);
-        read_int(pipe_fd[0]);
-        exit(0);
-    } else {
-        read_int(pipe_fd[0]);
-        char buf[PATH_MAX];
-        ssprintf(buf, PATH_MAX, "/proc/%d/ns/mnt", child);
-        auto clean_ns = (child > 0)? open(buf, O_RDONLY) : -1;
-        write_int(pipe_fd[1], 0);
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-        if (child > 0) waitpid(child, nullptr, 0);
-        return clean_ns;
     }
 }
 
@@ -272,27 +206,6 @@ void zygisk_handler(int client, const sock_cred *cred) {
     case ZygiskRequest::GET_MODDIR:
         get_moddir(client);
         break;
-    case ZygiskRequest::SULIST_ROOT_NS:
-        mount_magisk_to_remote(client, cred);
-        break;
-    case ZygiskRequest::REVERT_UNMOUNT: {
-        get_exe(cred->pid, buf, sizeof(buf));
-        int clean_ns = -1;
-        if (su_bin_fd >= 0) {
-            if (str_ends(buf, "64")) {
-                if (clean_ns64 < 0)
-                    clean_ns64 = get_clean_ns(cred->pid);
-                clean_ns = clean_ns64;
-            } else {
-                if (clean_ns32 < 0)
-                    clean_ns32 = get_clean_ns(cred->pid);
-                clean_ns = clean_ns32;
-            }
-        }
-        // send path to zygote instead send_fd
-        write_string(client, "/proc/"s + to_string(getpid()) + "/fd/" + to_string(clean_ns));
-        break;
-    }
     default:
         // Unknown code
         break;
@@ -307,15 +220,20 @@ void reset_zygisk(bool restore) {
         close(zygiskd_sockets[0]);
         close(zygiskd_sockets[1]);
         zygiskd_sockets[0] = zygiskd_sockets[1] = -1;
-        close(clean_ns64);
-        close(clean_ns32);
-        clean_ns64 = clean_ns32 = -1;
     }
     if (restore) {
         zygote_start_count = 1;
-        stop_trace_zygote = false;
     } else if (zygote_start_count.fetch_add(1) > 3) {
-        LOGW("zygote crashes too many times, stop injecting\n");
-        stop_trace_zygote = true;
+        LOGW("zygote crashes too many times, rolling-back\n");
+        restore = true;
+    }
+    if (restore) {
+        string native_bridge_orig = "0";
+        if (native_bridge.length() > strlen(ZYGISKLDR)) {
+            native_bridge_orig = native_bridge.substr(strlen(ZYGISKLDR));
+        }
+        set_prop(NBPROP, native_bridge_orig.data());
+    } else {
+        set_prop(NBPROP, native_bridge.data());
     }
 }

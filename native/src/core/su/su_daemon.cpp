@@ -11,7 +11,6 @@
 
 #include "su.hpp"
 #include "pts.hpp"
-#include "flags.h"
 
 using namespace std;
 
@@ -64,11 +63,11 @@ void su_info::check_db() {
     }
 
     if (eval_uid > 0) {
-        char query[256], *err;
+        char query[256];
         ssprintf(query, sizeof(query),
             "SELECT policy, logging, notification FROM policies "
             "WHERE uid=%d AND (until=0 OR until>%li)", eval_uid, time(nullptr));
-        err = db_exec(query, [&](db_row &row) -> bool {
+        auto res = db_exec(query, [&](db_row &row) -> bool {
             access.policy = (policy_t) parse_int(row["policy"]);
             access.log = parse_int(row["logging"]);
             access.notify = parse_int(row["notification"]);
@@ -76,12 +75,12 @@ void su_info::check_db() {
                  access.policy, access.log, access.notify);
             return true;
         });
-        db_err_cmd(err, return);
+        if (res.check_err())
+            return;
     }
 
     // We need to check our manager
     if (access.log || access.notify) {
-        check_pkg_refresh();
         mgr_uid = get_manager(to_user_id(eval_uid), &mgr_pkg, true);
     }
 }
@@ -89,11 +88,6 @@ void su_info::check_db() {
 bool uid_granted_root(int uid) {
     if (uid == AID_ROOT)
         return true;
-
-#if MAGISK_DEBUG
-    if (uid == AID_SHELL)
-        return true;
-#endif
 
     db_settings cfg;
     get_db_settings(cfg);
@@ -130,15 +124,16 @@ bool uid_granted_root(int uid) {
 
     bool granted = false;
 
-    char query[256], *err;
+    char query[256];
     ssprintf(query, sizeof(query),
         "SELECT policy FROM policies WHERE uid=%d AND (until=0 OR until>%li)",
         uid, time(nullptr));
-    err = db_exec(query, [&](db_row &row) -> bool {
+    auto res = db_exec(query, [&](db_row &row) -> bool {
         granted = parse_int(row["policy"]) == ALLOW;
         return true;
     });
-    db_err_cmd(err, return false);
+    if (res.check_err())
+        return false;
 
     return granted;
 }
@@ -147,9 +142,7 @@ void prune_su_access() {
     cached.reset();
     vector<bool> app_no_list = get_app_no_list();
     vector<int> rm_uids;
-    char query[256], *err;
-    strscpy(query, "SELECT uid FROM policies", sizeof(query));
-    err = db_exec(query, [&](db_row &row) -> bool {
+    auto res = db_exec("SELECT uid FROM policies", [&](db_row &row) -> bool {
         int uid = parse_int(row["uid"]);
         int app_id = to_app_id(uid);
         if (app_id >= AID_APP_START && app_id <= AID_APP_END) {
@@ -161,12 +154,13 @@ void prune_su_access() {
         }
         return true;
     });
-    db_err_cmd(err, return);
+    if (res.check_err())
+        return;
 
     for (int uid : rm_uids) {
+        char query[256];
         ssprintf(query, sizeof(query), "DELETE FROM policies WHERE uid == %d", uid);
-        // Don't care about errors
-        db_exec(query);
+        db_exec(query).check_err();
     }
 }
 
@@ -462,7 +456,7 @@ void su_daemon_handler(int client, const sock_cred *cred) {
     sigset_t block_set;
     sigemptyset(&block_set);
     sigprocmask(SIG_SETMASK, &block_set, nullptr);
-    if (!ctx.req.context.empty() && selinux_enabled()) {
+    if (!ctx.req.context.empty()) {
         auto f = xopen_file("/proc/self/attr/exec", "we");
         if (f) fprintf(f.get(), "%s", ctx.req.context.data());
     }

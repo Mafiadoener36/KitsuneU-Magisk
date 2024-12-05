@@ -2,7 +2,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include <core.hpp>
 #include <consts.hpp>
 #include <selinux.hpp>
 #include <base.hpp>
@@ -17,7 +16,6 @@ struct Applet {
 constexpr Applet applets[] = {
     { "su", su_client_main },
     { "resetprop", resetprop_main },
-    { "magiskhide", denylist_cli },
 };
 
 constexpr Applet private_applets[] = {

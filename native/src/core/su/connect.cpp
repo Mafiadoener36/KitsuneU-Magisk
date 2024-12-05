@@ -16,11 +16,10 @@ using namespace std;
 #define START_ACTIVITY \
 "/system/bin/app_process", "/system/bin", "com.android.commands.am.Am", \
 "start", "-p", target, "--user", user, "-a", "android.intent.action.VIEW", \
-"-f", "0x58800020", "--es", "action", action
+"-f", "0x18800020", "--es", "action", action
 
-// 0x58800020 = FLAG_ACTIVITY_NEW_TASK|FLAG_ACTIVITY_MULTIPLE_TASK|
-//              FLAG_ACTIVITY_NO_HISTORY|FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS|
-//              FLAG_INCLUDE_STOPPED_PACKAGES
+// 0x18800020 = FLAG_ACTIVITY_NEW_TASK|FLAG_ACTIVITY_MULTIPLE_TASK|
+//              FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS|FLAG_INCLUDE_STOPPED_PACKAGES
 
 #define get_cmd(to) \
 ((to).command.empty() ? \
@@ -204,7 +203,7 @@ void app_notify(const su_context &ctx) {
 int app_request(const su_context &ctx) {
     // Create FIFO
     char fifo[64];
-    ssprintf(fifo, sizeof(fifo), "/dev/magisk:su_request:%s:%d", RANDOM_SOCKET_NAME, ctx.pid);
+    ssprintf(fifo, sizeof(fifo), "%s/" INTLROOT "/su_request_%d", get_magisk_tmp(), ctx.pid);
     mkfifo(fifo, 0600);
     chown(fifo, ctx.info->mgr_uid, ctx.info->mgr_uid);
     setfilecon(fifo, MAGISK_FILE_CON);

@@ -1,5 +1,4 @@
-![](docs/images/logo.png#gh-dark-mode-only)
-![](docs/images/logo_dark.png#gh-light-mode-only)
+![](docs/images/logo.png)
 
 [![Downloads](https://img.shields.io/badge/dynamic/json?color=green&label=Downloads&query=totalString&url=https%3A%2F%2Fraw.githubusercontent.com%2Ftopjohnwu%2Fmagisk-files%2Fcount%2Fcount.json&cacheSeconds=1800)](https://raw.githubusercontent.com/topjohnwu/magisk-files/count/count.json)
 
@@ -19,16 +18,18 @@ Some highlight features:
 
 [Github](https://github.com/topjohnwu/Magisk/) is the only source where you can get official Magisk information and downloads.
 
-[![](https://img.shields.io/badge/Magisk-v26.4-blue)](https://github.com/topjohnwu/Magisk/releases/tag/v26.4)
-[![](https://img.shields.io/badge/Magisk%20Beta-v27.0-blue)](https://github.com/topjohnwu/Magisk/releases/tag/v27.0)
-[![](https://img.shields.io/badge/Magisk-Canary-red)](https://raw.githubusercontent.com/topjohnwu/magisk-files/canary/app-release.apk)
-[![](https://img.shields.io/badge/Magisk-Debug-red)](https://raw.githubusercontent.com/topjohnwu/magisk-files/canary/app-debug.apk)
+Click the icon below to download Magisk apk.
+
+[![](https://img.shields.io/badge/Magisk-v27.0-blue)](https://github.com/topjohnwu/Magisk/releases/tag/v27.0)
+[![](https://img.shields.io/badge/Magisk%20Beta-v28.0-blue)](https://github.com/topjohnwu/Magisk/releases/tag/v28.0)
+[![](https://img.shields.io/badge/Magisk-Canary-red)](https://github.com/topjohnwu/Magisk/releases/tag/canary-28003)
 
 ## Useful Links
 
 - [Installation Instruction](https://topjohnwu.github.io/Magisk/install.html)
 - [Building and Development](https://topjohnwu.github.io/Magisk/build.html)
 - [Magisk Documentation](https://topjohnwu.github.io/Magisk/)
+- [Zygisk module sample](https://github.com/topjohnwu/zygisk-module-sample)
 
 ## Bug Reports
 
@@ -42,8 +43,8 @@ For Magisk app crashes, record and upload the logcat when the crash occurs.
 
 Default string resources for the Magisk app and its stub APK are located here:
 
-- `app/src/main/res/values/strings.xml`
-- `stub/src/main/res/values/strings.xml`
+- `app/core/src/main/res/values/strings.xml`
+- `app/stub/src/main/res/values/strings.xml`
 
 Translate each and place them in the respective locations (`[module]/src/main/res/values-[lang]/strings.xml`).
 

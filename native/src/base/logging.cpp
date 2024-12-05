@@ -8,11 +8,12 @@
 
 using namespace std;
 
-bool logging_muted = false;
+#ifndef __call_bypassing_fortify
+#define __call_bypassing_fortify(fn) (&fn)
+#endif
 
 #undef vsnprintf
 static int fmt_and_log_with_rs(LogLevel level, const char *fmt, va_list ap) {
-    if (logging_muted) return 0;
     constexpr int sz = 4096;
     char buf[sz];
     buf[0] = '\0';

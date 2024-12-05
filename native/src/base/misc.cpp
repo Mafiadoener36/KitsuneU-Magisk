@@ -208,16 +208,22 @@ uint32_t binary_gcd(uint32_t u, uint32_t v) {
 }
 
 int switch_mnt_ns(int pid) {
-    char mnt[32];
-    ssprintf(mnt, sizeof(mnt), "/proc/%d/ns/mnt", pid);
-    if (access(mnt, R_OK) == -1) return 1; // Maybe process died..
+    int ret = -1;
+    int fd = syscall(__NR_pidfd_open, pid, 0);
+    if (fd > 0) {
+        ret = setns(fd, CLONE_NEWNS);
+        close(fd);
+    }
+    if (ret < 0) {
+        char mnt[32];
+        ssprintf(mnt, sizeof(mnt), "/proc/%d/ns/mnt", pid);
+        fd = open(mnt, O_RDONLY);
+        if (fd < 0) return 1; // Maybe process died..
 
-    int fd, ret;
-    fd = xopen(mnt, O_RDONLY);
-    if (fd < 0) return 1;
-    // Switch to its namespace
-    ret = xsetns(fd, 0);
-    close(fd);
+        // Switch to its namespace
+        ret = xsetns(fd, 0);
+        close(fd);
+    }
     return ret;
 }
 
@@ -289,36 +295,4 @@ const char *rust::Utf8CStr::data() const {
 
 size_t rust::Utf8CStr::length() const {
     return cxx$utf8str$len(this);
-}
-
-mt19937_64 &get_rand(const void *seed_buf) {
-    static mt19937_64 gen([&] {
-        mt19937_64::result_type seed;
-        if (seed_buf == nullptr) {
-            int fd = xopen("/dev/urandom", O_RDONLY | O_CLOEXEC);
-            xxread(fd, &seed, sizeof(seed));
-            close(fd);
-        } else {
-            memcpy(&seed, seed_buf, sizeof(seed));
-        }
-        return seed;
-    }());
-    return gen;
-}
-
-int gen_rand_str(char *buf, int len, bool varlen) {
-    auto gen = get_rand();
-
-    if (len == 0)
-        return 0;
-    if (varlen) {
-        std::uniform_int_distribution<int> len_dist(len / 2, len);
-        len = len_dist(gen);
-    }
-    std::uniform_int_distribution<int> alphabet('a', 'z');
-    for (int i = 0; i < len - 1; ++i) {
-        buf[i] = static_cast<char>(alphabet(gen));
-    }
-    buf[len - 1] = '\0';
-    return len - 1;
 }

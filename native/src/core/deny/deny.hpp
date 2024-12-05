@@ -10,8 +10,6 @@
 
 #define ISOLATED_MAGIC "isolated"
 
-#define SIGTERMTHRD SIGUSR1
-
 namespace DenyRequest {
 enum : int {
     ENFORCE,
@@ -20,9 +18,6 @@ enum : int {
     REMOVE,
     LIST,
     STATUS,
-    SULIST_STATUS,
-    ENFORCE_SULIST,
-    DISABLE_SULIST,
 
     END
 };
@@ -38,9 +33,6 @@ enum : int {
     INVALID_PKG,
     NO_NS,
     ERROR,
-    SULIST_ENFORCED,
-    SULIST_NOT_ENFORCED,
-    SULIST_NO_DISABLE,
 
     END
 };
@@ -53,7 +45,6 @@ int add_list(int client);
 int rm_list(int client);
 void ls_list(int client);
 
-// Misc
-int new_daemon_thread(void(*entry)());
-bool is_uid_on_list(int uid);
-void rescan_apps();
+bool proc_context_match(int pid, std::string_view context);
+void *logcat(void *arg);
+extern bool logcat_exit;
